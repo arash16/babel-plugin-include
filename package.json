@@ -1,0 +1,35 @@
+{
+  "name": "babel-plugin-include",
+  "version": "1.0.0",
+  "description": "A babel plugin to include contents of another file wherever needed.",
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "babel src/index.js -o lib/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arash16/babel-plugin-include.git"
+  },
+  "keywords": [
+    "babel-plugin",
+    "transpiler",
+    "generation",
+    "build",
+    "macro",
+    "include",
+    "module",
+    "import"
+  ],
+  "author": "Arash Shakery <arash.shakery@gmail.com> (arash16.com)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/arash16/babel-plugin-include/issues"
+  },
+  "homepage": "https://github.com/arash16/babel-plugin-include#readme",
+  "devDependencies": {
+    "babel-preset-env": "*"
+  },
+  "dependencies": {
+    "babel-generator": "*"
+  }
+}
