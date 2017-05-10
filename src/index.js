@@ -39,8 +39,8 @@ export default function ({ File, types: t, traverse }) {
 			return file.ast;
 		});
 	}
-	
-	
+
+
 	let loadedModules = Object.create(null);
     function loadModule(baseDir, moduleId) {
     	var file;
@@ -82,7 +82,7 @@ export default function ({ File, types: t, traverse }) {
 					files[node.loc.filename] = 1;
 			}
 		});
-		
+
 		return Object.keys(files);
 	}
 
@@ -114,7 +114,7 @@ export default function ({ File, types: t, traverse }) {
 
 				return generate(ast.program, opts, sources);
 			}
-			
+
 			// parserOpts.parser = function() 
 		},
 		visitor: {
