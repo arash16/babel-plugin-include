@@ -31,7 +31,7 @@ const providers = [
 				let file = resolve(moduleDir, src);
 				if (existsSync(file))
 					return {
-						id: moduleId,
+						id: relative('./', file),
 						adr: file
 					};
 			}
@@ -90,10 +90,8 @@ export default function ({ File, types: t, traverse }) {
 	        }
 
 	        return loadedModules[file.adr] = {
-	        	adr: file.adr,
-	            file: file.id,
-	            folder: dirname(file.adr),
 	            source: source,
+	            file: file.id,
 	            ast: ast
 	        }
         }
@@ -123,6 +121,19 @@ export default function ({ File, types: t, traverse }) {
 			scope = scope.parent;
 		}
 		return false;
+	}
+
+	let depsrels = {};
+	function moduleIncludes(src, trg) {
+		return src==trg || (depsrels[src] || {})[trg];
+	}
+	function includeModule(src, trg) {
+		depsrels[src] = depsrels[src] || {};
+		depsrels[src][trg] = true;
+
+		let tgd = depsrels[trg] || {};
+		for (let t in tgd)
+			includeModule(src, tgd[t]);
 	}
 
 	return {
@@ -157,21 +168,26 @@ export default function ({ File, types: t, traverse }) {
 		},
 		visitor: {
 			ImportDeclaration: function(path) {
-				// TODO: circular deps
 				const { node } = path;
 				if (!node.specifiers.length) {
-					let curDir = dirname(resolve(node.loc.filename || path.hub.file.opts.filename));
-					let moduleData = loadModule(curDir, node.source.value);
+					let curFile = node.loc.filename || path.hub.file.opts.filename,
+						moduleData = loadModule(dirname(resolve(curFile)), node.source.value);
+
 					if (moduleData.ast) {
-						if (scopeHasModule(path.scope, moduleData.adr))
+						if (moduleIncludes(moduleData.file, curFile)) {
+							console.warn(`Circular Dependency from ${curFile}:${node.loc.start.line} to ${moduleData.file}`);
+							path.remove();
+						}
+						else if (scopeHasModule(path.scope, moduleData.file))
 							path.remove();
 						else {
+							includeModule(curFile, moduleData.file);
+
 							path.replaceWith(moduleData.ast);
 							path.scope.mods = path.scope.mods || {};
-							path.scope.mods[moduleData.adr] = true;
+							path.scope.mods[moduleData.file] = true;
 						}
 					}
-					// else path.remove();
 				}
 			}
 		}
