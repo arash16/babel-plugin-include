@@ -102,8 +102,8 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 	            source: source,
 	            file: file.id,
 	            ast: ast,
-	            imports: [],
-	            parents: []
+	            importees: [],
+	            importers: []
 	        }
         }
 
@@ -169,8 +169,8 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 				if (!node.specifiers.length) {
 					let chldMod = loadModule(curDir, node.source.value);
 					if (chldMod) {
-						chldMod.parents.push(new ModuleImportPath(moduleData, path));
-						moduleData.imports.push(new ModuleImportPath(chldMod, path));
+						chldMod.importers.push(new ModuleImportPath(moduleData, path));
+						moduleData.importees.push(new ModuleImportPath(chldMod, path));
 
 						if (!lmSeen[chldMod.id])
 							loadModulesRecursive(chldMod);
@@ -181,6 +181,22 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 		return moduleData;
 	}
 
+	function findRequiredPaths(mod) {
+		let frpSeen = Object.create(null);
+		return function rec(mod) {
+			let result = [];
+			if (frpSeen[mod.id])
+				return result;
+
+			for (let imer of mod.importers)
+				if (imer.module.rooted)
+					result.push(imer.path);
+				else
+					[].push.apply(result, rec(imer.module));
+			return result;
+		}(mod)
+	}
+
 	return {
 		pre: function (file) {
 			let mainFile = file.opts.filename || file.parserOpts.sourceFileName,
@@ -189,54 +205,56 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 			        source: file.hub.file.code,
 			        file: mainFile,
 			        ast: file.ast,
-			        imports: [],
-			        parents: [],
+			        importees: [],
+			        importers: [],
 			        rooted: true
 				};
 
 			loadModulesRecursive(mainModu);
 
-			// BFS visit module imports
+			// BFS visit module importees
 			let Q = [], bSeen = Object.create(null);
-			for (let imi of mainModu.imports) {
-				let mod = imi.module;
+			for (let imee of mainModu.importees) {
+				let mod = imee.module;
 				if (!bSeen[mod.id]) {
 					bSeen[mod.id] = true;
 					Q.push(mod);
 				}
 			}
 
-			let frpSeen;
-			function findRequiredPaths(mod) {
-				let result = [];
-				if (frpSeen[mod.id])
-					return result;
-
-				for (let parmi of mod.parents)
-					if (parmi.module.rooted)
-						result.push(parmi.path);
-					else
-						[].push.apply(result, findRequiredPaths(parmi.module));
-				return result;
-			}
-
 			while (Q.length) {
 				let mod = Q.shift();
 				if (mod.rooted) continue;
 
-				frpSeen = Object.create(null);
 				let requiredPaths = arrUnique(findRequiredPaths(mod));
 				let pos = requiredPaths[0].getEarliestCommonAncestorFrom(requiredPaths).getStatementParent();
 				pos.insertBefore(mod.ast);
 
-				for (let parmi of mod.parents)
-					parmi.path.remove();
-				mod.parents.length = 0;
+				// remove all import statements from all modules
+				let imers = [];
+				for (let imer of mod.importers) {
+					imer.path.remove();
+					imers[imer.module.id] = imer.module;
+				}
+				mod.importers.length = 0;
+
+				// remove all imports from importees array of importer modules
+				for (let i in imers) if (imers[i]) {
+					let sz = 0, imes = imers[i].importees;
+					for (let j=0; j<imes.length; ++j)
+						if (imes[j].module != mod)
+							imes[sz++] = imes[j];
+					imes.length = sz;
+				}
+
+
 
 				mod.rooted = true;
+				for (let imee of mod.importees)
+					if (!imee.module.rooted)
+						Q.push(imee.module);
 			}
 
-			// traverese find all imports here !
 		},
 		manipulateOptions(opts, parserOpts, file) {
 			parserOpts.allowImportExportEverywhere = true;
