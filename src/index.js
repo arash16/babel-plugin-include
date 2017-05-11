@@ -7,7 +7,7 @@ let newId = (last => (() => ++last))(0);
 
 function arrUnique(arr) {
 	let result = [];
-	for (let i=0; i<arr.length; ++i)
+	for (let i in arr)
 		if (result.indexOf(arr[i]) < 0)
 			result.push(arr[i]);
 	return result;
@@ -35,6 +35,8 @@ const providers = [
 			if (!reNpmModule.test(moduleId)) return;
 
 			let moduleDir = findModuleFolder(baseDir, moduleId);
+			if (!moduleDir) return;
+
 			let pckg = require(moduleDir + '/' + 'package.json');
 			let src = pckg.includable || pckg.source;
 			if (src) {
@@ -66,7 +68,11 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 	function parse(code, srcFile) {
 		let opts = {
 			sourceType: "module",
-			filename: srcFile
+			filename: srcFile,
+			parserOpts: {
+				allowImportExportEverywhere: true,
+				allowReturnOutsideFunction: true
+			}
 		};
 		const file = new File(parseInt(bversion) == 6 ? opts : { options: opts, passes: [] });
 		return file.wrap(code, function() {
@@ -99,15 +105,15 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 
 	        return loadedModules[file.adr] = {
 	        	id: newId(),
+	        	adr: file.adr,
 	            source: source,
 	            file: file.id,
 	            ast: ast,
 	            importees: [],
-	            importers: []
+	            importers: [],
+	            depth: Infinity
 	        }
         }
-
-        console.error('Module ' + moduleId + ' not found.');
     }
 
 	// --------------------------------------------------------------------------------------
@@ -137,18 +143,6 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 		return false;
 	}
 
-	let depsrels = {};
-	function moduleIncludes(src, trg) {
-		return src==trg || (depsrels[src] || {})[trg];
-	}
-	function includeModule(src, trg) {
-		depsrels[src] = depsrels[src] || {};
-		depsrels[src][trg] = true;
-
-		let tgd = depsrels[trg] || {};
-		for (let t in tgd)
-			includeModule(src, tgd[t]);
-	}
 
 	// --------------------------------------------------------------------------------------
 
@@ -161,7 +155,6 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 	let lmSeen = Object.create(null);
 	function loadModulesRecursive(moduleData) {
 		lmSeen[moduleData.id] = true;
-
 		let curDir = dirname(resolve(moduleData.file));
 		traverse(moduleData.ast, {
 			ImportDeclaration: function(path) {
@@ -169,9 +162,9 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 				if (!node.specifiers.length) {
 					let chldMod = loadModule(curDir, node.source.value);
 					if (chldMod) {
+						chldMod.depth = Math.min(chldMod.depth, moduleData.depth + 1);
 						chldMod.importers.push(new ModuleImportPath(moduleData, path));
 						moduleData.importees.push(new ModuleImportPath(chldMod, path));
-
 						if (!lmSeen[chldMod.id])
 							loadModulesRecursive(chldMod);
 					}
@@ -181,39 +174,83 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 		return moduleData;
 	}
 
-	function findRequiredPaths(mod) {
+
+	function findRequiredPaths(mod1) {
 		let frpSeen = Object.create(null);
-		return function rec(mod) {
+		return arrUnique(function rec1(mod) {
 			let result = [];
 			if (frpSeen[mod.id])
 				return result;
+			frpSeen[mod.id] = true;
 
-			for (let imer of mod.importers)
-				if (imer.module.rooted)
-					result.push(imer.path);
-				else
-					[].push.apply(result, rec(imer.module));
+			for (let imer of mod.importers) {
+				if (imer.module != mod1)
+					result.push(imer);
+
+				if (imer.module.depth > 0)
+					[].push.apply(result, rec1(imer.module));
+			}
 			return result;
-		}(mod)
+		}(mod1));
+	}
+
+	function ascendents(mod) {
+		let result = [];
+		(function rec2(mod) {
+			result[mod.id] = 1;
+			for (let imer of mod.importers)
+				if (!result[imer.module.id])
+					rec2(imer.module);
+		})(mod);
+
+		return result;
+	}
+
+	function lcaModules(mods) {
+		let modDatas = [], intersect = ascendents(mods[0]);
+		mods.forEach((mod, i) => {
+			modDatas[mod.id] = mod;
+			if (!i) return;
+
+			let aa = ascendents(mod);
+			for (let i in intersect)
+				if (!aa[i])
+					delete intersect[i];
+		});
+
+		// common ancestors
+		let coma = [];
+		for (let i in intersect)
+			coma.push(modDatas[i]);
+
+		// sort descending on depth
+		coma.sort((a, b) => a.depth < b.depth);
+		let best = coma[coma.length-1];
+		for (let i=0; i<coma.length; ++i)
+			if (!coma[i+1] || coma[i+1].depth!=coma[i].depth)
+				return coma[i];
 	}
 
 	return {
 		pre: function (file) {
 			let mainFile = file.opts.filename || file.parserOpts.sourceFileName,
-				mainModu = loadedModules[resolve(mainFile)] = {
+				mainFileAdr = resolve(mainFile),
+				mainModu = loadedModules[mainFileAdr] = {
 					id: newId(),
+					adr: mainFileAdr,
 			        source: file.hub.file.code,
 			        file: mainFile,
 			        ast: file.ast,
 			        importees: [],
 			        importers: [],
-			        rooted: true
+			        depth: 0
 				};
 
 			loadModulesRecursive(mainModu);
 
 			// BFS visit module importees
 			let Q = [], bSeen = Object.create(null);
+			bSeen[mainModu.id] = true;
 			for (let imee of mainModu.importees) {
 				let mod = imee.module;
 				if (!bSeen[mod.id]) {
@@ -224,35 +261,24 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 
 			while (Q.length) {
 				let mod = Q.shift();
-				if (mod.rooted) continue;
 
-				let requiredPaths = arrUnique(findRequiredPaths(mod));
+				let moduleImportPaths = findRequiredPaths(mod);
+				let lcaMod = lcaModules(arrUnique(moduleImportPaths.map(x => x.module)));
+				let requiredPaths = arrUnique(moduleImportPaths.filter(x => x.module == lcaMod).map(x => x.path));
+
+
 				let pos = requiredPaths[0].getEarliestCommonAncestorFrom(requiredPaths).getStatementParent();
-				pos.insertBefore(mod.ast);
+				let relfile = relative(dirname(lcaMod.adr), mod.adr);
+				if (relfile[0]!='.') relfile = './' + relfile;
+				let vast = t.importDeclaration([], t.stringLiteral( relfile ));
+				vast.loc = { filename: pos.node.loc.filename };
+				pos.insertBefore(vast);
 
-				// remove all import statements from all modules
-				let imers = [];
-				for (let imer of mod.importers) {
-					imer.path.remove();
-					imers[imer.module.id] = imer.module;
-				}
-				mod.importers.length = 0;
-
-				// remove all imports from importees array of importer modules
-				for (let i in imers) if (imers[i]) {
-					let sz = 0, imes = imers[i].importees;
-					for (let j=0; j<imes.length; ++j)
-						if (imes[j].module != mod)
-							imes[sz++] = imes[j];
-					imes.length = sz;
-				}
-
-
-
-				mod.rooted = true;
 				for (let imee of mod.importees)
-					if (!imee.module.rooted)
+					if (!bSeen[imee.module.id]) {
+						bSeen[imee.module.id] = true;
 						Q.push(imee.module);
+					}
 			}
 
 		},
@@ -293,15 +319,9 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 						moduleData = loadModule(dirname(resolve(curFile)), node.source.value);
 
 					if (moduleData) {
-						if (moduleIncludes(moduleData.file, curFile)) {
-							console.warn(`Circular Dependency from ${curFile}:${node.loc.start.line} to ${moduleData.file}`);
-							path.remove();
-						}
-						else if (scopeHasModule(path.scope, moduleData.file))
-							path.remove();
+						if (moduleData.placed || !moduleData.depth) path.remove();
 						else {
-							includeModule(curFile, moduleData.file);
-
+							moduleData.placed = true;
 							path.replaceWith(moduleData.ast);
 							path.scope.mods = path.scope.mods || {};
 							path.scope.mods[moduleData.file] = true;
