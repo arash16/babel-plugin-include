@@ -3,6 +3,16 @@ const { existsSync, readFileSync } = require('fs');
 const generate = require('babel-generator').default;
 
 
+let newId = (last => (() => ++last))(0);
+
+function arrUnique(arr) {
+	let result = [];
+	for (let i=0; i<arr.length; ++i)
+		if (result.indexOf(arr[i]) < 0)
+			result.push(arr[i]);
+	return result;
+}
+
 function moduleFileExists(file) {
 	if (!file.endsWith('.js')) file += '.js';
 	return existsSync(file);
@@ -51,16 +61,14 @@ const providers = [
     }
 ];
 
-function readModuleFile(file) {
-    return readFileSync(file, 'utf8').toString();
-}
 
-export default function ({ File, types: t, traverse }) {
+export default function ({ File, types: t, traverse, version: bversion }) {
 	function parse(code, srcFile) {
-		const file = new File({
+		let opts = {
 			sourceType: "module",
 			filename: srcFile
-		});
+		};
+		const file = new File(parseInt(bversion) == 6 ? opts : { options: opts, passes: [] });
 		return file.wrap(code, function() {
 			file.addCode(code);
 			file.parseCode(code);
@@ -81,7 +89,7 @@ export default function ({ File, types: t, traverse }) {
 
 	        try {
 	        	//console.log("Importing: " + file.adr);
-	            var source = readModuleFile(file.adr),
+	            var source = readFileSync(file.adr, 'utf8').toString(),
 	                ast = parse(source, file.id);
 	        }
 	        catch (e) {
@@ -90,15 +98,19 @@ export default function ({ File, types: t, traverse }) {
 	        }
 
 	        return loadedModules[file.adr] = {
+	        	id: newId(),
 	            source: source,
 	            file: file.id,
-	            ast: ast
+	            ast: ast,
+	            imports: [],
+	            parents: []
 	        }
         }
 
         console.error('Module ' + moduleId + ' not found.');
-        return {};
     }
+
+	// --------------------------------------------------------------------------------------
 
 	function getRequiredSources(ast) {
 		let files = {};
@@ -112,6 +124,8 @@ export default function ({ File, types: t, traverse }) {
 
 		return Object.keys(files);
 	}
+
+	// --------------------------------------------------------------------------------------
 
 	function scopeHasModule(scope, adr) {
 		while (scope) {
@@ -136,7 +150,94 @@ export default function ({ File, types: t, traverse }) {
 			includeModule(src, tgd[t]);
 	}
 
+	// --------------------------------------------------------------------------------------
+
+	function ModuleImportPath(mod, path) {
+		this.module = mod;
+		this.path = path;
+	}
+
+
+	let lmSeen = Object.create(null);
+	function loadModulesRecursive(moduleData) {
+		lmSeen[moduleData.id] = true;
+
+		let curDir = dirname(resolve(moduleData.file));
+		traverse(moduleData.ast, {
+			ImportDeclaration: function(path) {
+				const { node } = path;
+				if (!node.specifiers.length) {
+					let chldMod = loadModule(curDir, node.source.value);
+					if (chldMod) {
+						chldMod.parents.push(new ModuleImportPath(moduleData, path));
+						moduleData.imports.push(new ModuleImportPath(chldMod, path));
+
+						if (!lmSeen[chldMod.id])
+							loadModulesRecursive(chldMod);
+					}
+				}
+			}
+		});
+		return moduleData;
+	}
+
 	return {
+		pre: function (file) {
+			let mainFile = file.opts.filename || file.parserOpts.sourceFileName,
+				mainModu = loadedModules[resolve(mainFile)] = {
+					id: newId(),
+			        source: file.hub.file.code,
+			        file: mainFile,
+			        ast: file.ast,
+			        imports: [],
+			        parents: [],
+			        rooted: true
+				};
+
+			loadModulesRecursive(mainModu);
+
+			// BFS visit module imports
+			let Q = [], bSeen = Object.create(null);
+			for (let imi of mainModu.imports) {
+				let mod = imi.module;
+				if (!bSeen[mod.id]) {
+					bSeen[mod.id] = true;
+					Q.push(mod);
+				}
+			}
+
+			let frpSeen;
+			function findRequiredPaths(mod) {
+				let result = [];
+				if (frpSeen[mod.id])
+					return result;
+
+				for (let parmi of mod.parents)
+					if (parmi.module.rooted)
+						result.push(parmi.path);
+					else
+						[].push.apply(result, findRequiredPaths(parmi.module));
+				return result;
+			}
+
+			while (Q.length) {
+				let mod = Q.shift();
+				if (mod.rooted) continue;
+
+				frpSeen = Object.create(null);
+				let requiredPaths = arrUnique(findRequiredPaths(mod));
+				let pos = requiredPaths[0].getEarliestCommonAncestorFrom(requiredPaths).getStatementParent();
+				pos.insertBefore(mod.ast);
+
+				for (let parmi of mod.parents)
+					parmi.path.remove();
+				mod.parents.length = 0;
+
+				mod.rooted = true;
+			}
+
+			// traverese find all imports here !
+		},
 		manipulateOptions(opts, parserOpts, file) {
 			parserOpts.allowImportExportEverywhere = true;
 			parserOpts.allowReturnOutsideFunction = true;
@@ -173,7 +274,7 @@ export default function ({ File, types: t, traverse }) {
 					let curFile = node.loc.filename || path.hub.file.opts.filename,
 						moduleData = loadModule(dirname(resolve(curFile)), node.source.value);
 
-					if (moduleData.ast) {
+					if (moduleData) {
 						if (moduleIncludes(moduleData.file, curFile)) {
 							console.warn(`Circular Dependency from ${curFile}:${node.loc.start.line} to ${moduleData.file}`);
 							path.remove();
