@@ -4,7 +4,7 @@
   "description": "A babel plugin to include contents of another file wherever needed.",
   "main": "lib/index.js",
   "scripts": {
-    "build": "babel src/index.js -o lib/index.js"
+    "build": "cd src && babel * -d ../lib/"
   },
   "repository": {
     "type": "git",
