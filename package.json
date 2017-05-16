@@ -1,5 +1,5 @@
 {
-  "name": "babel-plugin-include",
+  "name": "babel-plugin-merge",
   "version": "1.0.0",
   "description": "A babel plugin to include contents of another file wherever needed.",
   "main": "lib/index.js",
@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/arash16/babel-plugin-include.git"
+    "url": "git+https://github.com/arash16/babel-plugin-merge.git"
   },
   "keywords": [
     "babel-plugin",
@@ -23,9 +23,9 @@
   "author": "Arash Shakery <arash.shakery@gmail.com> (arash16.com)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/arash16/babel-plugin-include/issues"
+    "url": "https://github.com/arash16/babel-plugin-merge/issues"
   },
-  "homepage": "https://github.com/arash16/babel-plugin-include#readme",
+  "homepage": "https://github.com/arash16/babel-plugin-merge#readme",
   "devDependencies": {
     "babel-preset-env": "*"
   },
