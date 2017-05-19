@@ -41,13 +41,13 @@ providers.push(
 			if (!moduleDir) return;
 
 			let pckg = require(moduleDir + '/' + 'package.json');
-			let src = pckg.includable || pckg.source;
+			let src = pckg.includable;
 			for (let i=1; i<modParts.length; ++i)
 				if (src) src = src[modParts[i]];
 				else return;
 
 			if (typeof src == 'object')
-				src = src['index'] || src[''];
+				src = src[''] || src['index'];
 
 			if (typeof src == 'string') {
 				let file = resolve(moduleDir, src);
