@@ -35,12 +35,21 @@ providers.push(
 		return function (moduleId, baseDir) {
 			if (!reNpmModule.test(moduleId)) return;
 
-			let moduleDir = findModuleFolder(moduleId, baseDir);
+			let modParts = moduleId.split('/');
+
+			let moduleDir = findModuleFolder(modParts[0], baseDir);
 			if (!moduleDir) return;
 
 			let pckg = require(moduleDir + '/' + 'package.json');
 			let src = pckg.includable || pckg.source;
-			if (src) {
+			for (let i=1; i<modParts.length; ++i)
+				if (src) src = src[modParts[i]];
+				else return;
+
+			if (typeof src == 'object')
+				src = src['index'] || src[''];
+
+			if (typeof src == 'string') {
 				let file = resolve(moduleDir, src);
 				if (existsSync(file))
 					return {
