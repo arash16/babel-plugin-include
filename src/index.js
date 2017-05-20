@@ -70,7 +70,7 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 				if (relfile[0]!='.') relfile = './' + relfile;
 				let vast = t.importDeclaration([], t.stringLiteral( relfile ));
 				vast.loc = { filename: pos.node.loc.filename };
-				pos.insertBefore(vast);
+				try { pos.insertBefore(vast); } catch(e) {}
 
 				for (let imee of mod.importees)
 					if (!bSeen[imee.module.id]) {
