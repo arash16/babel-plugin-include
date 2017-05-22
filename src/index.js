@@ -79,7 +79,25 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 					}
 			}
 
-			this.modulesPlaced = [];
+			let modulesPlaced = [];
+			traverse(file.ast, {
+				ImportDeclaration: function(path) {
+					const { node } = path;
+					if (!node.specifiers.length) {
+						let curFile = node.loc.filename || path.hub.file.opts.filename,
+							moduleData = loader.loadModule(node.source.value, dirname(resolve(curFile)));
+
+						if (moduleData) {
+							if (modulesPlaced[moduleData.id] || !moduleData.depth)
+								path.remove();
+							else {
+								modulesPlaced[moduleData.id] = true;
+								path.replaceWith(moduleData.ast);
+							}
+						}
+					}
+				}
+			});
 		},
 		manipulateOptions(opts, parserOpts, file) {
 			parserOpts.allowImportExportEverywhere = true;
@@ -107,25 +125,9 @@ export default function ({ File, types: t, traverse, version: bversion }) {
 					if (sources[reqSrc] === true)
 						throw new Error('Required source "' + reqSrc + '" not found.');
 
-				return generate(ast.program || ast, opts, sources);
-			}
-		},
-		visitor: {
-			ImportDeclaration: function(path) {
-				const { node } = path;
-				if (!node.specifiers.length) {
-					let curFile = node.loc.filename || path.hub.file.opts.filename,
-						moduleData = loader.loadModule(node.source.value, dirname(resolve(curFile)));
-
-					if (moduleData) {
-						if (this.modulesPlaced[moduleData.id] || !moduleData.depth)
-							path.remove();
-						else {
-							this.modulesPlaced[moduleData.id] = true;
-							path.replaceWith(moduleData.ast);
-						}
-					}
-				}
+				let result = generate(ast.program || ast, opts, sources);
+				if (result.map) delete result.map.sourceRoot;
+				return result;
 			}
 		}
 	};

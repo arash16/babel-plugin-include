@@ -1,6 +1,6 @@
 {
   "name": "babel-plugin-merge",
-  "version": "1.1.1",
+  "version": "1.2.1",
   "description": "A babel plugin to include contents of another file wherever needed.",
   "main": "lib/index.js",
   "scripts": {
