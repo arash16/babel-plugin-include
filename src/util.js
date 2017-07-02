@@ -5,3 +5,9 @@ export function arrUnique(arr) {
 			result.push(arr[i]);
 	return result;
 };
+
+
+let { createHash } = require('crypto');
+export function md5(data) {
+	return createHash('md5').update(data).digest("hex");
+}

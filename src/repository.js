@@ -1,7 +1,7 @@
 import { findModule } from "./provider";
 import { resolve, dirname } from 'path';
 import { readFileSync } from 'fs';
-import { arrUnique } from './util';
+import { arrUnique, md5 } from './util';
 
 
 
@@ -19,12 +19,17 @@ export class Repository {
 		this.traverse = traverse;
 
 		this.loadedModules = Object.create(null);
+		this.loadedContents = Object.create(null);
 		this.modules = [];
 	}
 
 	addModule(filename, adr, source, ast) {
 		if (this.loadedModules[adr])
 			return this.loadedModules[adr];
+
+		let hash = md5(source.trim());
+		if (this.loadedContents[hash])
+			return this.loadedContents[hash];
 
 		if (ast === undefined) {
 		    try {
@@ -36,7 +41,9 @@ export class Repository {
 		    }
 		}
 
-		let modData = {
+		let modData =
+		this.loadedModules[adr] =
+		this.loadedContents[hash] = {
         	id: this.modules.length,
         	adr: adr,
             ast: ast,
@@ -48,15 +55,12 @@ export class Repository {
         };
 
 		this.modules.push(modData);
-		return this.loadedModules[adr] = modData;
+		return modData;
 	}
 
 	loadModule(moduleId, baseDir) {
     	let file = findModule(moduleId, baseDir);
     	if (!file) return;
-
-	    if (this.loadedModules[file.adr])
-	        return this.loadedModules[file.adr];
 
 		return this.addModule(
 			file.id,
